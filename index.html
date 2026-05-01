@@ -2,13 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Museum AR Glasses Simulator</title>
+<title>Museum AR Glasses - iPhone</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
-  :root {
-    --hud-green: #00ff88; --hud-cyan: #00e5ff; --hud-amber: #ffb300;
-  }
+  :root { --hud-green: #00ff88; --hud-cyan: #00e5ff; }
   * { margin:0; padding:0; box-sizing:border-box; }
   body, html { height:100%; overflow:hidden; background:#000; font-family:'Share Tech Mono', monospace; }
   
@@ -16,31 +14,29 @@
   
   #hud { position:fixed; inset:0; z-index:10; pointer-events:none; color:var(--hud-green); }
   
-  /* Scanlines + Vignette */
   #overlay {
     position:fixed; inset:0; z-index:2; pointer-events:none;
-    background: 
-      linear-gradient(transparent 50%, rgba(0,255,136,0.03) 50%),
-      radial-gradient(circle at center, transparent 60%, rgba(0,0,0,0.75) 100%);
-    background-size: 100% 4px;
-    animation: scan 6s linear infinite;
+    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.06) 4px, rgba(0,255,136,0.06) 5px),
+                radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.85) 100%);
+    animation: scan 8s linear infinite;
   }
-  @keyframes scan { from { background-position: 0 0; } to { background-position: 0 400px; } }
+  @keyframes scan { from {background-position:0 0;} to {background-position:0 400px;} }
+
+  #zone { position:absolute; top:30px; left:30px; font-family:'Orbitron',sans-serif; font-size:42px; font-weight:900; text-shadow:0 0 20px var(--hud-green); }
 
   #info {
-    position:absolute; bottom:80px; left:20px; right:20px;
-    background:rgba(0,0,0,0.65); border:1.5px solid var(--hud-green);
-    padding:15px; border-radius:8px; backdrop-filter:blur(10px);
+    position:absolute; bottom:100px; left:20px; right:20px;
+    background:rgba(0,0,0,0.7); border:2px solid var(--hud-green);
+    padding:18px; border-radius:10px; backdrop-filter:blur(12px);
   }
-  #title { font-family:'Orbitron',sans-serif; font-size:18px; margin-bottom:6px; }
-  #desc { font-size:13px; line-height:1.5; color:#ddd; }
-  
-  #zone { position:absolute; top:20px; left:20px; font-size:28px; font-weight:900; text-shadow:0 0 15px var(--hud-green); }
-  
-  #gesture-toast {
+  #title { font-family:'Orbitron',sans-serif; font-size:19px; margin-bottom:8px; }
+  #desc { font-size:13.5px; line-height:1.55; color:#eee; }
+
+  #toast {
     position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-    background:rgba(0,229,255,0.15); border:2px solid var(--hud-cyan);
-    padding:12px 30px; border-radius:8px; font-size:15px; opacity:0; transition:0.3s;
+    background:rgba(0,229,255,0.2); border:2px solid var(--hud-cyan);
+    padding:14px 28px; border-radius:50px; font-size:16px; opacity:0; transition:all 0.3s;
+    text-align:center; pointer-events:none;
   }
 </style>
 </head>
@@ -53,124 +49,118 @@
   <div id="zone">A1</div>
   
   <div id="info">
-    <div id="title">Statue of Apollo</div>
-    <div id="desc">Loading...</div>
+    <div id="title">Loading Exhibit...</div>
+    <div id="desc">Point camera at monument • Use hand gestures</div>
   </div>
 
-  <div id="gesture-toast"></div>
+  <div id="toast"></div>
 </div>
 
-<button id="start" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:100; padding:15px 30px; background:transparent; border:2px solid #0f0; color:#0f0; font-size:16px;">
-  START GLASSES MODE
+<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:18px 40px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:17px;border-radius:8px;">
+  START AR GLASSES MODE
 </button>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <script>
-// ================== EXHIBIT DATA ==================
+// ================== DATA ==================
 const ZONES = [
   {
-    id: "A1", title: "Statue of Apollo",
-    desc: "Marble sculpture, c. 460 BCE. Masterpiece of Early Classical Greek art. Note the contrapposto stance — the first time the human body was shown in natural movement."
+    id: "A1",
+    title: "Statue of Apollo",
+    desc: "Marble sculpture, c. 460 BCE. One of the finest surviving examples of Early Classical Greek art. Apollo is shown in ideal human form with contrapposto stance."
   },
   {
-    id: "A2", title: "Ancient Greek Vase",
-    desc: "Red-figure Attic amphora, c. 490 BCE. Depicts the Labours of Heracles. The red-figure technique allowed artists incredible detail and emotion."
+    id: "A2",
+    title: "Ancient Greek Vase",
+    desc: "Red-figure pottery, c. 490 BCE. This Attic amphora depicts the labours of Heracles. Note the dynamic composition and expressive figures."
   }
-  // Add more zones here
 ];
 
-let current = 0;
+let currentZone = 0;
 
 // Elements
 const video = document.getElementById('video');
 const zoneEl = document.getElementById('zone');
 const titleEl = document.getElementById('title');
 const descEl = document.getElementById('desc');
-const toast = document.getElementById('gesture-toast');
-const startBtn = document.getElementById('start');
+const toastEl = document.getElementById('toast');
+const startBtn = document.getElementById('startBtn');
 
-let hands = null;
-
-// Update display
-function updateZone() {
-  const z = ZONES[current];
+function updateDisplay() {
+  const z = ZONES[currentZone];
   zoneEl.textContent = z.id;
   titleEl.textContent = z.title;
   descEl.textContent = z.desc;
 }
 
-// Toast feedback
-function showToast(text) {
-  toast.textContent = text;
-  toast.style.opacity = 1;
-  setTimeout(() => toast.style.opacity = 0, 1800);
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.style.opacity = 1;
+  setTimeout(() => toastEl.style.opacity = 0, 1600);
 }
 
-// Gesture detection
-function onResults(results) {
+// Hand gesture
+let lastPinchTime = 0;
+function onHandResults(results) {
   if (!results.multiHandLandmarks?.length) return;
-  
+
   const lm = results.multiHandLandmarks[0];
-  const thumbTip = lm[4];
-  const indexTip = lm[8];
-  
-  const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-  
-  if (pinchDist < 0.08) {
-    // Pinch = speak current info
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(ZONES[current].title + ". " + ZONES[current].desc);
-      utterance.rate = 0.95;
-      speechSynthesis.speak(utterance);
-    }
-    showToast("🔊 SPEAKING");
+  const dist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+
+  if (dist < 0.07 && Date.now() - lastPinchTime > 1200) {
+    lastPinchTime = Date.now();
+    const utterance = new SpeechSynthesisUtterance(ZONES[currentZone].title + ". " + ZONES[currentZone].desc);
+    speechSynthesis.speak(utterance);
+    showToast("🔊 Speaking");
   }
 }
 
-// Start everything
-async function startAR() {
-  startBtn.style.display = 'none';
-  
+// Start
+async function start() {
+  startBtn.style.display = "none";
+
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 } }
+      video: { facingMode: "environment", width: {ideal: 1280}, height: {ideal: 720} }
     });
     video.srcObject = stream;
     await video.play();
 
-    // MediaPipe Hands
-    hands = new Hands({
+    // MediaPipe
+    const hands = new Hands({
       locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
     });
-    hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7 });
-    hands.onResults(onResults);
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.65 });
+    hands.onResults(onHandResults);
 
     const camera = new Camera(video, {
-      onFrame: async () => { if (hands) await hands.send({image: video}); }
+      onFrame: async () => await hands.send({image: video})
     });
     await camera.start();
 
-    updateZone();
+    updateDisplay();
+    showToast("✅ AR GLASSES READY");
 
-  } catch (e) {
-    alert("Camera error: " + e.message);
+  } catch (err) {
+    alert("Camera failed: " + err.message);
+    startBtn.style.display = "block";
   }
 }
 
-startBtn.addEventListener('click', startAR);
+startBtn.addEventListener('click', start);
 
-// Swipe on screen as backup
-let touchStartX = 0;
-document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
+// Swipe fallback
+let startX = 0;
+document.addEventListener('touchstart', e => startX = e.changedTouches[0].screenX);
 document.addEventListener('touchend', e => {
-  const dx = e.changedTouches[0].screenX - touchStartX;
-  if (Math.abs(dx) > 80) {
-    if (dx < 0) { current = (current + 1) % ZONES.length; } 
-    else { current = (current - 1 + ZONES.length) % ZONES.length; }
-    updateZone();
-    showToast(dx < 0 ? "▶ NEXT ZONE" : "◀ PREV ZONE");
+  const diff = e.changedTouches[0].screenX - startX;
+  if (Math.abs(diff) > 70) {
+    if (diff < 0) currentZone = (currentZone + 1) % ZONES.length;
+    else currentZone = (currentZone - 1 + ZONES.length) % ZONES.length;
+    updateDisplay();
+    showToast(diff < 0 ? "▶ NEXT" : "◀ PREVIOUS");
   }
 });
 </script>
