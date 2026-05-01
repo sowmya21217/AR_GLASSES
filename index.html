@@ -703,27 +703,66 @@
   }
 
   /* ════════════════════════════════════════════
+     PRE-LOAD MEDIAPIPE ON PAGE OPEN
+     Model files (~8 MB) download in background
+     while user is still on the permission screen.
+  ════════════════════════════════════════════ */
+  let handsReady = false;
+  let handsInstance = null;
+
+  function preloadMediaPipe() {
+    try {
+      handsInstance = new Hands({
+        locateFile: file =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+      handsInstance.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.5,
+      });
+      handsInstance.onResults(onResults);
+
+      /* Send a tiny blank canvas frame to force WASM + model download now */
+      const warmup = document.createElement('canvas');
+      warmup.width = 64; warmup.height = 64;
+      handsInstance.send({ image: warmup }).then(() => {
+        handsReady = true;
+        mpText.textContent = 'READY';
+        /* Update button if user hasn't clicked yet */
+        if (!startBtn.disabled) {
+          startBtn.textContent = 'INITIALISE';
+        }
+      }).catch(() => { handsReady = true; }); // silent fail, still proceed
+    } catch(e) {
+      handsReady = true; // MediaPipe unavailable – gestures disabled, app still works
+    }
+  }
+
+  /* Kick off pre-load immediately */
+  preloadMediaPipe();
+
+  /* ════════════════════════════════════════════
      INIT CAMERA + MEDIAPIPE
   ════════════════════════════════════════════ */
   let mpCamera = null;
 
   async function initApp() {
-    /* loading feedback */
-    loadingBar.style.width = '20%';
+    loadingBar.style.width = '15%';
 
-    /* Camera stream */
+    /* Camera stream – lower res = faster start on mobile */
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { exact: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
         },
         audio: false,
       });
     } catch (e1) {
-      /* Fallback if exact not supported */
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' },
@@ -739,32 +778,29 @@
     await new Promise(res => { video.onloadedmetadata = res; });
     await video.play();
 
-    loadingBar.style.width = '55%';
+    /* Show camera immediately — don't wait for MediaPipe */
     permScreen.style.display = 'none';
+    loadingBar.style.width = '70%';
 
-    /* Canvas sizing */
     canvas.width  = video.videoWidth  || 640;
     canvas.height = video.videoHeight || 480;
 
-    /* MediaPipe Hands */
-    const hands = new Hands({
-      locateFile: file =>
-        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 0,         // 0 = lite, faster on mobile
-      minDetectionConfidence: 0.6,
-      minTrackingConfidence: 0.5,
-    });
-    hands.onResults(onResults);
+    /* If MediaPipe hasn't finished pre-loading yet, wait (usually already done) */
+    if (!handsReady) {
+      mpText.textContent = 'LOADING MODEL…';
+      await new Promise(res => {
+        const poll = setInterval(() => {
+          if (handsReady) { clearInterval(poll); res(); }
+        }, 100);
+      });
+    }
 
-    loadingBar.style.width = '80%';
+    loadingBar.style.width = '90%';
 
-    /* Camera utility loop */
+    /* Start camera → MediaPipe loop */
     mpCamera = new Camera(video, {
       onFrame: async () => {
-        await hands.send({ image: video });
+        if (handsInstance) await handsInstance.send({ image: video });
       },
       width: canvas.width,
       height: canvas.height,
@@ -772,8 +808,7 @@
     await mpCamera.start();
 
     loadingBar.style.width = '100%';
-    setTimeout(() => { loadingBar.style.display = 'none'; }, 600);
-
+    setTimeout(() => { loadingBar.style.display = 'none'; }, 400);
     mpText.textContent = 'SCANNING';
   }
 
@@ -781,7 +816,7 @@
      START BUTTON
   ════════════════════════════════════════════ */
   startBtn.addEventListener('click', () => {
-    startBtn.textContent = 'INITIALISING…';
+    startBtn.textContent = 'STARTING…';
     startBtn.disabled = true;
     /* Unlock speech synthesis on iOS (must be triggered from user gesture) */
     const unlock = new SpeechSynthesisUtterance('');
