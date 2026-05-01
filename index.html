@@ -1,54 +1,178 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AR Test</title>
-  <script type="module">
-    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-    import { ARButton } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/ARButton.js";
+<meta charset="UTF-8">
+<title>Museum AR Glasses Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+  :root {
+    --hud-green: #00ff88; --hud-cyan: #00e5ff; --hud-amber: #ffb300;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body, html { height:100%; overflow:hidden; background:#000; font-family:'Share Tech Mono', monospace; }
+  
+  #video { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; }
+  
+  #hud { position:fixed; inset:0; z-index:10; pointer-events:none; color:var(--hud-green); }
+  
+  /* Scanlines + Vignette */
+  #overlay {
+    position:fixed; inset:0; z-index:2; pointer-events:none;
+    background: 
+      linear-gradient(transparent 50%, rgba(0,255,136,0.03) 50%),
+      radial-gradient(circle at center, transparent 60%, rgba(0,0,0,0.75) 100%);
+    background-size: 100% 4px;
+    animation: scan 6s linear infinite;
+  }
+  @keyframes scan { from { background-position: 0 0; } to { background-position: 0 400px; } }
 
-    let scene, camera, renderer, reticle;
-
-    async function init() {
-      renderer = new THREE.WebGLRenderer({ alpha: true });
-      renderer.xr.enabled = true;
-      document.body.appendChild(renderer.domElement);
-
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera();
-
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444);
-      scene.add(light);
-
-      // Green reticle
-      reticle = new THREE.Mesh(
-        new THREE.RingGeometry(0.08, 0.1, 32),
-        new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide })
-      );
-      reticle.rotation.x = -Math.PI / 2;
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
-
-      const button = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
-      document.body.appendChild(button);
-
-      renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-      if (frame) {
-        const refSpace = renderer.xr.getReferenceSpace();
-        const session = renderer.xr.getSession();
-
-        // Simple hit test logic here...
-      }
-      renderer.render(scene, camera);
-    }
-
-    init();
-  </script>
+  #info {
+    position:absolute; bottom:80px; left:20px; right:20px;
+    background:rgba(0,0,0,0.65); border:1.5px solid var(--hud-green);
+    padding:15px; border-radius:8px; backdrop-filter:blur(10px);
+  }
+  #title { font-family:'Orbitron',sans-serif; font-size:18px; margin-bottom:6px; }
+  #desc { font-size:13px; line-height:1.5; color:#ddd; }
+  
+  #zone { position:absolute; top:20px; left:20px; font-size:28px; font-weight:900; text-shadow:0 0 15px var(--hud-green); }
+  
+  #gesture-toast {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,229,255,0.15); border:2px solid var(--hud-cyan);
+    padding:12px 30px; border-radius:8px; font-size:15px; opacity:0; transition:0.3s;
+  }
+</style>
 </head>
-<body style="margin:0; overflow:hidden; background:#000;"></body>
+<body>
+
+<video id="video" autoplay playsinline muted></video>
+<div id="overlay"></div>
+
+<div id="hud">
+  <div id="zone">A1</div>
+  
+  <div id="info">
+    <div id="title">Statue of Apollo</div>
+    <div id="desc">Loading...</div>
+  </div>
+
+  <div id="gesture-toast"></div>
+</div>
+
+<button id="start" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:100; padding:15px 30px; background:transparent; border:2px solid #0f0; color:#0f0; font-size:16px;">
+  START GLASSES MODE
+</button>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+<script>
+// ================== EXHIBIT DATA ==================
+const ZONES = [
+  {
+    id: "A1", title: "Statue of Apollo",
+    desc: "Marble sculpture, c. 460 BCE. Masterpiece of Early Classical Greek art. Note the contrapposto stance — the first time the human body was shown in natural movement."
+  },
+  {
+    id: "A2", title: "Ancient Greek Vase",
+    desc: "Red-figure Attic amphora, c. 490 BCE. Depicts the Labours of Heracles. The red-figure technique allowed artists incredible detail and emotion."
+  }
+  // Add more zones here
+];
+
+let current = 0;
+
+// Elements
+const video = document.getElementById('video');
+const zoneEl = document.getElementById('zone');
+const titleEl = document.getElementById('title');
+const descEl = document.getElementById('desc');
+const toast = document.getElementById('gesture-toast');
+const startBtn = document.getElementById('start');
+
+let hands = null;
+
+// Update display
+function updateZone() {
+  const z = ZONES[current];
+  zoneEl.textContent = z.id;
+  titleEl.textContent = z.title;
+  descEl.textContent = z.desc;
+}
+
+// Toast feedback
+function showToast(text) {
+  toast.textContent = text;
+  toast.style.opacity = 1;
+  setTimeout(() => toast.style.opacity = 0, 1800);
+}
+
+// Gesture detection
+function onResults(results) {
+  if (!results.multiHandLandmarks?.length) return;
+  
+  const lm = results.multiHandLandmarks[0];
+  const thumbTip = lm[4];
+  const indexTip = lm[8];
+  
+  const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+  
+  if (pinchDist < 0.08) {
+    // Pinch = speak current info
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(ZONES[current].title + ". " + ZONES[current].desc);
+      utterance.rate = 0.95;
+      speechSynthesis.speak(utterance);
+    }
+    showToast("🔊 SPEAKING");
+  }
+}
+
+// Start everything
+async function startAR() {
+  startBtn.style.display = 'none';
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    // MediaPipe Hands
+    hands = new Hands({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.7 });
+    hands.onResults(onResults);
+
+    const camera = new Camera(video, {
+      onFrame: async () => { if (hands) await hands.send({image: video}); }
+    });
+    await camera.start();
+
+    updateZone();
+
+  } catch (e) {
+    alert("Camera error: " + e.message);
+  }
+}
+
+startBtn.addEventListener('click', startAR);
+
+// Swipe on screen as backup
+let touchStartX = 0;
+document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX);
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].screenX - touchStartX;
+  if (Math.abs(dx) > 80) {
+    if (dx < 0) { current = (current + 1) % ZONES.length; } 
+    else { current = (current - 1 + ZONES.length) % ZONES.length; }
+    updateZone();
+    showToast(dx < 0 ? "▶ NEXT ZONE" : "◀ PREV ZONE");
+  }
+});
+</script>
+</body>
 </html>
