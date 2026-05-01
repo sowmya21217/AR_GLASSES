@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Museum AR Glasses - Huawei</title>
+<title>Air Glasses View - Huawei</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
@@ -14,17 +14,34 @@
 
   #overlay {
     position:fixed; inset:0; z-index:2; pointer-events:none;
-    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.05) 4px, rgba(0,255,136,0.05) 5px),
-                radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.8) 100%);
-    animation: scan 8s linear infinite;
+    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.04) 4px, rgba(0,255,136,0.04) 5px),
+                radial-gradient(ellipse at center, transparent 65%, rgba(0,0,0,0.65) 100%);
+    animation: scan 10s linear infinite;
   }
-  @keyframes scan { from {background-position:0 0;} to {background-position:0 400px;} }
+  @keyframes scan { from {background-position:0 0;} to {background-position:0 500px;} }
 
-  #zone { position:absolute; top:30px; left:30px; font-family:'Orbitron',sans-serif; font-size:40px; font-weight:900; text-shadow:0 0 25px var(--green); }
-  #info { position:absolute; bottom:100px; left:20px; right:20px; background:rgba(0,0,0,0.7); border:2px solid var(--green); padding:18px; border-radius:12px; backdrop-filter:blur(12px); }
-  #title { font-family:'Orbitron',sans-serif; font-size:19px; margin-bottom:8px; }
-  #desc { font-size:13.5px; line-height:1.6; color:#eee; }
-  #toast { position:absolute; top:45%; left:50%; transform:translate(-50%,-50%); background:rgba(0,229,255,0.2); border:2px solid var(--cyan); padding:14px 32px; border-radius:50px; font-size:16px; opacity:0; transition:0.3s; }
+  /* Floating HUD - feels more "in air" */
+  #zone { 
+    position:absolute; top:15%; left:50%; transform:translateX(-50%);
+    font-family:'Orbitron',sans-serif; font-size:48px; font-weight:900; 
+    text-shadow:0 0 30px var(--green); opacity:0.95;
+  }
+
+  #info {
+    position:absolute; top:28%; left:50%; transform:translateX(-50%);
+    width:85%; max-width:420px;
+    background:rgba(0,0,0,0.65); border:1.5px solid var(--green);
+    padding:16px 20px; border-radius:12px; backdrop-filter:blur(12px);
+    text-align:center;
+  }
+  #title { font-family:'Orbitron',sans-serif; font-size:18px; margin-bottom:8px; }
+  #desc { font-size:13.5px; line-height:1.6; color:#ddd; }
+
+  #toast { 
+    position:absolute; top:55%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,229,255,0.18); border:2px solid var(--cyan);
+    padding:12px 30px; border-radius:50px; font-size:15px; opacity:0; transition:0.4s;
+  }
 </style>
 </head>
 <body>
@@ -36,28 +53,27 @@
   <div id="zone">A1</div>
   <div id="info">
     <div id="title">Statue of Apollo</div>
-    <div id="desc">Back camera • Pinch in air to speak • Swipe to change</div>
+    <div id="desc">Pinch in the air in front of the monument to hear info</div>
   </div>
   <div id="toast"></div>
 </div>
 
-<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:22px 55px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:18px;border-radius:12px;">
-  START HUAWEI AR GLASSES MODE
+<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:20px 55px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:18px;border-radius:12px;">
+  START AIR GLASSES VIEW
 </button>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <script>
-// Data
+// Data + logic (same as before)
 const ZONES = [
-  { id: "A1", title: "Statue of Apollo", desc: "Marble sculpture, c. 460 BCE. Early Classical Greek masterpiece." },
+  { id: "A1", title: "Statue of Apollo", desc: "Marble sculpture, c. 460 BCE. Early Classical Greek art with ideal human form." },
   { id: "A2", title: "Ancient Greek Vase", desc: "Red-figure pottery, c. 490 BCE. Depicts the labours of Heracles." }
 ];
 
 let currentZone = 0;
 
-// Elements
 const video = document.getElementById('video');
 const zoneEl = document.getElementById('zone');
 const titleEl = document.getElementById('title');
@@ -78,13 +94,12 @@ function showToast(msg) {
   setTimeout(() => toastEl.style.opacity = 0, 1600);
 }
 
-// Hand gesture
 function onHandResults(results) {
   if (!results.multiHandLandmarks?.length) return;
   const lm = results.multiHandLandmarks[0];
   const pinch = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
 
-  if (pinch < 0.07 && Date.now() - (window.lastP || 0) > 1300) {
+  if (pinch < 0.07 && Date.now() - (window.lastP||0) > 1400) {
     window.lastP = Date.now();
     const ut = new SpeechSynthesisUtterance(ZONES[currentZone].title + ". " + ZONES[currentZone].desc);
     speechSynthesis.speak(ut);
@@ -92,45 +107,33 @@ function onHandResults(results) {
   }
 }
 
-async function startHuawei() {
+async function start() {
   startBtn.style.display = "none";
 
   let stream = null;
-
-  // Huawei-friendly camera request
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: {ideal: 1280}, height: {ideal: 720} }
+      video: { facingMode: "environment", width: {ideal: 1280} }
     });
   } catch (e) {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    } catch (err) {
-      alert("Camera access denied. Please allow in settings.");
-      return;
-    }
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
   }
 
   video.srcObject = stream;
   await video.play();
 
-  // MediaPipe
-  const hands = new Hands({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-  });
-  hands.setOptions({ maxNumHands:1, modelComplexity:0, minDetectionConfidence:0.65 });
+  const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+  hands.setOptions({ maxNumHands:1, modelComplexity:0 });
   hands.onResults(onHandResults);
 
-  const camera = new Camera(video, {
-    onFrame: async () => await hands.send({image: video})
-  });
+  const camera = new Camera(video, { onFrame: async () => await hands.send({image: video}) });
   await camera.start();
 
   updateZone();
-  showToast("✅ HUAWEI AR MODE ACTIVE");
+  showToast("✅ AIR GLASSES VIEW READY");
 }
 
-startBtn.addEventListener('click', startHuawei);
+startBtn.addEventListener('click', start);
 </script>
 </body>
 </html>
