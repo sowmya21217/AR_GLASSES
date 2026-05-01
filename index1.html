@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AR Glasses MVP - Full Gesture Pipeline</title>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: black;
+  font-family: Arial;
+}
+
+#video {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#overlay {
+  position: fixed;
+  bottom: 12%;
+  left: 5%;
+  right: 5%;
+  color: white;
+  background: rgba(0,0,0,0.6);
+  padding: 15px;
+  border-radius: 12px;
+}
+
+#hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  color: white;
+}
+</style>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+</head>
+
+<body>
+
+<video id="video" autoplay playsinline></video>
+
+<div id="overlay">
+  <h2 id="title">Waiting for gesture...</h2>
+  <p id="desc">Show hand to camera</p>
+</div>
+
+<div id="hud">
+  <div>Zone: <span id="zone">None</span></div>
+</div>
+
+<script>
+
+// ----------------------------
+// MUSEUM DATA
+// ----------------------------
+const museum = {
+  A1: {
+    title: "Statue of Apollo",
+    desc: "Roman statue from 2nd century BC"
+  },
+  A2: {
+    title: "Ancient Greek Vase",
+    desc: "Ceramic artifact from ancient Greece"
+  }
+};
+
+let currentZone = "A1";
+
+// ----------------------------
+// VOICE (FIXED - NO DUPLICATE)
+// ----------------------------
+let speaking = false;
+
+function speak(text) {
+  if (speaking) return;
+
+  speaking = true;
+
+  speechSynthesis.cancel();
+
+  let msg = new SpeechSynthesisUtterance(text);
+
+  msg.onend = () => {
+    speaking = false;
+  };
+
+  speechSynthesis.speak(msg);
+}
+
+// ----------------------------
+// UPDATE UI
+// ----------------------------
+function updateUI(zone) {
+  currentZone = zone;
+
+  document.getElementById("zone").innerText = zone;
+  document.getElementById("title").innerText = museum[zone].title;
+  document.getElementById("desc").innerText = museum[zone].desc;
+}
+
+// ----------------------------
+// CAMERA START
+// ----------------------------
+const video = document.getElementById("video");
+
+navigator.mediaDevices.getUserMedia({ video: true })
+.then(stream => {
+  video.srcObject = stream;
+});
+
+// ----------------------------
+// ZONE SWITCH
+// ----------------------------
+function nextZone() {
+  updateUI("A2");
+}
+
+function prevZone() {
+  updateUI("A1");
+}
+
+// ----------------------------
+// MEDIA PIPE HANDS SETUP
+// ----------------------------
+const hands = new Hands({
+  locateFile: (file) =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+  maxNumHands: 1,
+  modelComplexity: 1,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+// ----------------------------
+// GESTURE LOGIC
+// ----------------------------
+let lastGestureTime = 0;
+
+hands.onResults(results => {
+  if (!results.multiHandLandmarks) return;
+
+  const hand = results.multiHandLandmarks[0];
+
+  const indexTip = hand[8];
+  const thumbTip = hand[4];
+
+  const dx = indexTip.x - thumbTip.x;
+  const dy = indexTip.y - thumbTip.y;
+
+  const distance = Math.sqrt(dx*dx + dy*dy);
+
+  const now = Date.now();
+
+  // debounce gestures (prevents spam)
+  if (now - lastGestureTime < 1200) return;
+
+  // 🤏 PINCH = SPEAK
+  if (distance < 0.05) {
+    lastGestureTime = now;
+
+    const text =
+      museum[currentZone].title + ". " +
+      museum[currentZone].desc;
+
+    speak(text);
+  }
+
+  // 👉 swipe right (hand movement)
+  if (indexTip.x > 0.7) {
+    lastGestureTime = now;
+    nextZone();
+  }
+
+  // 👈 swipe left
+  if (indexTip.x < 0.3) {
+    lastGestureTime = now;
+    prevZone();
+  }
+});
+
+// ----------------------------
+// CONNECT CAMERA TO MEDIAPIPE
+// ----------------------------
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await hands.send({ image: video });
+  },
+  width: 640,
+  height: 480
+});
+
+camera.start();
+
+// ----------------------------
+// INIT DEFAULT ZONE
+// ----------------------------
+updateUI("A1");
+
+</script>
+
+</body>
+</html>
