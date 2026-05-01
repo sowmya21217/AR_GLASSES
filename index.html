@@ -1,219 +1,800 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AR Glasses MVP v3</title>
-
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>Museum AR Guide</title>
 <style>
-body {
-  margin: 0;
-  overflow: hidden;
-  background: black;
-  font-family: Arial;
-}
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
 
-#video {
-  position: fixed;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* HUD like glasses */
-#hud {
-  position: fixed;
-  top: 10px;
-  left: 10px;
-  color: white;
-  background: rgba(0,0,0,0.55);
-  padding: 10px;
-  border-radius: 10px;
-  z-index: 10;
-}
-
-#overlay {
-  position: fixed;
-  bottom: 12%;
-  left: 5%;
-  right: 5%;
-  color: white;
-  background: rgba(0,0,0,0.6);
-  padding: 15px;
-  border-radius: 12px;
-  z-index: 10;
-}
-</style>
-
-<!-- MediaPipe -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
-</head>
-
-<body>
-
-<video id="video" autoplay playsinline></video>
-
-<div id="hud">
-  <div id="zoneLabel">Zone: NONE</div>
-</div>
-
-<div id="overlay">
-  <h2 id="title">Loading...</h2>
-  <p id="desc">Show hand to interact</p>
-</div>
-
-<script>
-
-// --------------------
-// MUSEUM DATA
-// --------------------
-const zones = {
-  A1: {
-    title: "Statue of Apollo",
-    desc: "Roman artifact from 2nd century BC"
-  },
-  A2: {
-    title: "Ancient Greek Vase",
-    desc: "Ceramic pottery used in rituals"
+  :root {
+    --hud-green: #00ff88;
+    --hud-cyan: #00e5ff;
+    --hud-amber: #ffb300;
+    --hud-red: #ff3d71;
+    --glass-bg: rgba(0,0,0,0.55);
+    --glass-border: rgba(0,255,136,0.35);
+    --scan-line: rgba(0,255,136,0.06);
+    --font-hud: 'Orbitron', sans-serif;
+    --font-mono: 'Share Tech Mono', monospace;
   }
-};
 
-let currentZone = "A1";
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: var(--font-mono);
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
 
-// --------------------
-// SPEECH (NO REPEAT FIX)
-// --------------------
-let speaking = false;
+  /* ── CAMERA ── */
+  #video {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    z-index: 1;
+    transform: scaleX(1); /* back camera – no mirror */
+  }
 
-function speak(text) {
-  if (speaking) return;
+  /* ── SCANLINE OVERLAY ── */
+  #scanlines {
+    position: fixed;
+    inset: 0; z-index: 2;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      var(--scan-line) 3px,
+      var(--scan-line) 4px
+    );
+    animation: scanMove 8s linear infinite;
+  }
+  @keyframes scanMove {
+    0%   { background-position: 0 0; }
+    100% { background-position: 0 400px; }
+  }
 
-  speaking = true;
-  speechSynthesis.cancel();
-
-  let msg = new SpeechSynthesisUtterance(text);
-
-  msg.onend = () => {
-    speaking = false;
-  };
-
-  speechSynthesis.speak(msg);
-}
-
-// --------------------
-// UI UPDATE
-// --------------------
-function setZone(z) {
-  currentZone = z;
-
-  document.getElementById("zoneLabel").innerText =
-    "Zone: " + z;
-
-  document.getElementById("title").innerText =
-    zones[z].title;
-
-  document.getElementById("desc").innerText =
-    zones[z].desc;
-}
-
-// init
-setZone("A1");
-
-// --------------------
-// CAMERA (FORCE BACK CAMERA)
-// --------------------
-const video = document.getElementById("video");
-
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { ideal: "environment" } }
-})
-.then(stream => {
-  video.srcObject = stream;
-})
-.catch(() => {
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" }
-  }).then(stream => {
-    video.srcObject = stream;
-  });
-});
-
-// --------------------
-// HAND TRACKING
-// --------------------
-const hands = new Hands({
-  locateFile: (file) =>
-    `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-});
-
-hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
-});
-
-// --------------------
-// GESTURE ENGINE
-// --------------------
-let lastActionTime = 0;
-
-hands.onResults(results => {
-  if (!results.multiHandLandmarks) return;
-
-  const now = Date.now();
-  if (now - lastActionTime < 1200) return;
-
-  const hand = results.multiHandLandmarks[0];
-
-  const index = hand[8];
-  const thumb = hand[4];
-
-  const dx = index.x - thumb.x;
-  const dy = index.y - thumb.y;
-
-  const distance = Math.sqrt(dx*dx + dy*dy);
-
-  // 🤏 PINCH → SPEAK
-  if (distance < 0.05) {
-    lastActionTime = now;
-
-    speak(
-      zones[currentZone].title +
-      ". " +
-      zones[currentZone].desc
+  /* ── VIGNETTE ── */
+  #vignette {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none;
+    background: radial-gradient(ellipse at center,
+      transparent 55%,
+      rgba(0,0,0,0.75) 100%
     );
   }
 
-  // 👉 swipe right → next zone
-  if (index.x > 0.75) {
-    lastActionTime = now;
-    setZone("A2");
+  /* ── HUD WRAPPER ── */
+  #hud {
+    position: fixed; inset: 0; z-index: 10;
+    pointer-events: none;
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    padding: env(safe-area-inset-top, 16px) env(safe-area-inset-right, 16px)
+             env(safe-area-inset-bottom, 16px) env(safe-area-inset-left, 16px);
+    padding-top: max(env(safe-area-inset-top), 16px);
+    padding-bottom: max(env(safe-area-inset-bottom), 16px);
   }
 
-  // 👈 swipe left → prev zone
-  if (index.x < 0.25) {
-    lastActionTime = now;
-    setZone("A1");
+  /* ── TOP BAR ── */
+  #top-bar {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 8px;
   }
-});
 
-// --------------------
-// CAMERA → MEDIAPIPE PIPELINE
-// --------------------
-const camera = new Camera(video, {
-  onFrame: async () => {
-    await hands.send({ image: video });
-  },
-  width: 640,
-  height: 480
-});
+  #zone-badge {
+    background: var(--glass-bg);
+    border: 1.5px solid var(--hud-green);
+    border-radius: 4px;
+    padding: 4px 12px;
+    display: flex; flex-direction: column; align-items: center;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 0 12px rgba(0,255,136,0.3), inset 0 0 8px rgba(0,255,136,0.05);
+    min-width: 64px;
+  }
+  #zone-label {
+    font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 3px;
+    color: rgba(0,255,136,0.6); text-transform: uppercase;
+  }
+  #zone-id {
+    font-family: var(--font-hud);
+    font-size: 28px; font-weight: 900;
+    color: var(--hud-green);
+    text-shadow: 0 0 20px var(--hud-green), 0 0 40px rgba(0,255,136,0.4);
+    line-height: 1;
+    transition: all 0.3s ease;
+  }
 
-camera.start();
+  #top-right {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  }
+  #sys-status {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 4px; padding: 4px 8px;
+    backdrop-filter: blur(8px);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--hud-green);
+    box-shadow: 0 0 6px var(--hud-green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+  #sys-text {
+    font-size: 8px; letter-spacing: 2px;
+    color: rgba(0,255,136,0.7); text-transform: uppercase;
+  }
+  #time-display {
+    font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: 1px;
+    color: rgba(0,255,136,0.5);
+  }
 
+  /* ── RETICLE / CROSSHAIR ── */
+  #reticle {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 56px; height: 56px;
+    pointer-events: none;
+  }
+  #reticle svg { width: 100%; height: 100%; }
+
+  /* ── BOTTOM PANEL ── */
+  #bottom-panel {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* zone nav dots */
+  #zone-nav {
+    display: flex; justify-content: center; gap: 8px; align-items: center;
+  }
+  .nav-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 1px solid var(--hud-green);
+    background: transparent;
+    transition: all 0.3s;
+  }
+  .nav-dot.active {
+    background: var(--hud-green);
+    box-shadow: 0 0 8px var(--hud-green);
+  }
+
+  /* main info card */
+  #info-card {
+    background: var(--glass-bg);
+    border: 1.5px solid var(--glass-border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 0 24px rgba(0,255,136,0.15), inset 0 0 16px rgba(0,0,0,0.3);
+    position: relative;
+    overflow: hidden;
+    transition: opacity 0.25s;
+  }
+  #info-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: linear-gradient(to bottom, var(--hud-green), var(--hud-cyan));
+    box-shadow: 0 0 12px var(--hud-green);
+  }
+  #exhibit-tag {
+    font-size: 8px; letter-spacing: 3px;
+    color: var(--hud-cyan); text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  #exhibit-title {
+    font-family: var(--font-hud);
+    font-size: 15px; font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 10px rgba(255,255,255,0.3);
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  #exhibit-desc {
+    font-size: 11px; line-height: 1.6;
+    color: rgba(255,255,255,0.75);
+    letter-spacing: 0.3px;
+  }
+  #corner-id {
+    position: absolute; top: 8px; right: 10px;
+    font-size: 8px; letter-spacing: 2px;
+    color: rgba(0,255,136,0.4);
+  }
+
+  /* ── GESTURE HINT BAR ── */
+  #gesture-bar {
+    display: flex; justify-content: center; gap: 18px;
+    flex-wrap: wrap;
+  }
+  .g-hint {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 8px; letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.4); text-transform: uppercase;
+  }
+  .g-icon {
+    font-size: 13px; filter: grayscale(0.3);
+  }
+
+  /* ── GESTURE FEEDBACK ── */
+  #gesture-toast {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    background: rgba(0,0,0,0.8);
+    border: 1.5px solid var(--hud-cyan);
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-family: var(--font-hud);
+    font-size: 13px; letter-spacing: 2px;
+    color: var(--hud-cyan);
+    text-align: center;
+    box-shadow: 0 0 30px rgba(0,229,255,0.3);
+    z-index: 50;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #gesture-toast.show {
+    opacity: 1; transform: translate(-50%,-50%) scale(1);
+  }
+
+  /* ── SPEECH INDICATOR ── */
+  #speech-indicator {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 16px) + 140px);
+    left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid var(--hud-amber);
+    border-radius: 20px; padding: 6px 14px;
+    z-index: 20; opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #speech-indicator.visible { opacity: 1; }
+  #speech-indicator .wave {
+    display: flex; gap: 2px; align-items: center; height: 14px;
+  }
+  #speech-indicator .wave span {
+    display: block; width: 3px; border-radius: 2px;
+    background: var(--hud-amber);
+    box-shadow: 0 0 4px var(--hud-amber);
+    animation: waveBar 0.8s ease-in-out infinite;
+  }
+  #speech-indicator .wave span:nth-child(1){height:4px; animation-delay:0s;}
+  #speech-indicator .wave span:nth-child(2){height:10px;animation-delay:0.1s;}
+  #speech-indicator .wave span:nth-child(3){height:14px;animation-delay:0.2s;}
+  #speech-indicator .wave span:nth-child(4){height:8px; animation-delay:0.3s;}
+  #speech-indicator .wave span:nth-child(5){height:5px; animation-delay:0.4s;}
+  @keyframes waveBar {
+    0%,100%{transform:scaleY(0.5);} 50%{transform:scaleY(1);}
+  }
+  #speech-label {
+    font-size: 9px; letter-spacing: 2px;
+    color: var(--hud-amber); text-transform: uppercase;
+  }
+
+  /* ── ZONE TRANSITION FLASH ── */
+  #zone-flash {
+    position: fixed; inset: 0; z-index: 8;
+    background: rgba(0,255,136,0.12);
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.1s;
+  }
+  #zone-flash.flash { opacity: 1; }
+
+  /* ── CANVAS (MediaPipe) ── */
+  #output-canvas {
+    display: none; /* hidden – used internally */
+  }
+
+  /* ── PERMISSION SCREEN ── */
+  #perm-screen {
+    position: fixed; inset: 0; z-index: 100;
+    background: #000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 20px; padding: 32px;
+  }
+  #perm-screen h1 {
+    font-family: var(--font-hud);
+    font-size: 18px; color: var(--hud-green); letter-spacing: 3px;
+    text-align: center;
+    text-shadow: 0 0 20px var(--hud-green);
+  }
+  #perm-screen p {
+    font-size: 12px; color: rgba(255,255,255,0.6);
+    text-align: center; line-height: 1.7; letter-spacing: 0.5px;
+  }
+  #start-btn {
+    pointer-events: all;
+    background: transparent;
+    border: 2px solid var(--hud-green);
+    border-radius: 4px; padding: 14px 36px;
+    font-family: var(--font-hud); font-size: 14px;
+    color: var(--hud-green); letter-spacing: 3px;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(0,255,136,0.3);
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+  #start-btn:active {
+    background: rgba(0,255,136,0.15);
+    box-shadow: 0 0 40px rgba(0,255,136,0.5);
+  }
+
+  /* ── LOADING ── */
+  #loading-bar {
+    position: fixed; bottom: 0; left: 0; z-index: 101;
+    height: 2px; background: var(--hud-green);
+    box-shadow: 0 0 8px var(--hud-green);
+    width: 0%; transition: width 0.4s ease;
+  }
+
+  /* ── MEDIAPIPE DEBUG DOT ── */
+  #mp-status {
+    position: fixed; top: max(env(safe-area-inset-top),16px);
+    left: 50%; transform: translateX(-50%);
+    z-index: 20;
+    display: flex; align-items: center; gap: 5px;
+    font-size: 8px; letter-spacing: 2px;
+    color: rgba(0,255,136,0.4); text-transform: uppercase;
+    transition: color 0.3s;
+  }
+  #mp-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: rgba(0,255,136,0.4);
+    transition: all 0.3s;
+  }
+  #mp-status.active #mp-dot {
+    background: var(--hud-cyan);
+    box-shadow: 0 0 8px var(--hud-cyan);
+  }
+  #mp-status.active { color: var(--hud-cyan); }
+</style>
+</head>
+<body>
+
+<!-- PERMISSION SCREEN -->
+<div id="perm-screen">
+  <h1>MUSEUM AR GUIDE</h1>
+  <p>Smart glasses interface<br/>Camera + gesture control required.<br/>Please allow camera access when prompted.</p>
+  <button id="start-btn">INITIALISE</button>
+</div>
+<div id="loading-bar"></div>
+
+<!-- CAMERA + MEDIAPIPE -->
+<video id="video" autoplay playsinline muted></video>
+<canvas id="output-canvas"></canvas>
+
+<!-- HUD OVERLAYS -->
+<div id="scanlines"></div>
+<div id="vignette"></div>
+<div id="zone-flash"></div>
+
+<div id="gesture-toast"></div>
+
+<div id="speech-indicator">
+  <div class="wave">
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <span id="speech-label">Speaking</span>
+</div>
+
+<div id="mp-status">
+  <div id="mp-dot"></div>
+  <span id="mp-text">MP INIT</span>
+</div>
+
+<div id="hud">
+  <!-- TOP -->
+  <div id="top-bar">
+    <div id="zone-badge">
+      <div id="zone-label">Zone</div>
+      <div id="zone-id">A1</div>
+    </div>
+    <div id="top-right">
+      <div id="sys-status">
+        <div class="dot"></div>
+        <span id="sys-text">AR ACTIVE</span>
+      </div>
+      <div id="time-display">00:00:00</div>
+    </div>
+  </div>
+
+  <!-- CENTRE RETICLE -->
+  <div id="reticle">
+    <svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="28" y1="0"  x2="28" y2="10" stroke="rgba(0,255,136,0.7)" stroke-width="1.5"/>
+      <line x1="28" y1="46" x2="28" y2="56" stroke="rgba(0,255,136,0.7)" stroke-width="1.5"/>
+      <line x1="0"  y1="28" x2="10" y2="28" stroke="rgba(0,255,136,0.7)" stroke-width="1.5"/>
+      <line x1="46" y1="28" x2="56" y2="28" stroke="rgba(0,255,136,0.7)" stroke-width="1.5"/>
+      <circle cx="28" cy="28" r="4" stroke="rgba(0,255,136,0.5)" stroke-width="1"/>
+      <path d="M4 4 L16 4 L4 16" stroke="rgba(0,255,136,0.5)" stroke-width="1.5" fill="none"/>
+      <path d="M52 4 L40 4 L52 16" stroke="rgba(0,255,136,0.5)" stroke-width="1.5" fill="none"/>
+      <path d="M4 52 L16 52 L4 40" stroke="rgba(0,255,136,0.5)" stroke-width="1.5" fill="none"/>
+      <path d="M52 52 L40 52 L52 40" stroke="rgba(0,255,136,0.5)" stroke-width="1.5" fill="none"/>
+    </svg>
+  </div>
+
+  <!-- BOTTOM -->
+  <div id="bottom-panel">
+    <div id="zone-nav"></div>
+    <div id="info-card">
+      <div id="corner-id">ID:EXH-001</div>
+      <div id="exhibit-tag">Exhibit · Zone A1</div>
+      <div id="exhibit-title">Statue of Apollo</div>
+      <div id="exhibit-desc">Marble sculpture, c. 460 BCE. One of the finest surviving examples of Early Classical Greek art. Apollo, god of music and light, is depicted in ideal human form — the embodiment of harmony between strength and grace. Note the contrapposto stance: a revolution in natural movement.</div>
+    </div>
+    <div id="gesture-bar">
+      <div class="g-hint"><span class="g-icon">👈</span><span>Prev Zone</span></div>
+      <div class="g-hint"><span class="g-icon">🤏</span><span>Speak</span></div>
+      <div class="g-hint"><span class="g-icon">👉</span><span>Next Zone</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SCRIPTS -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ════════════════════════════════════════════
+     ZONE DATA
+  ════════════════════════════════════════════ */
+  const ZONES = [
+    {
+      id: 'A1',
+      tag: 'Exhibit · Zone A1',
+      title: 'Statue of Apollo',
+      desc: 'Marble sculpture, c. 460 BCE. One of the finest surviving examples of Early Classical Greek art. Apollo, god of music and light, is depicted in ideal human form — the embodiment of harmony between strength and grace. Note the contrapposto stance: a revolution in natural movement.',
+      speech: 'You are viewing Zone A1. The Statue of Apollo. A marble sculpture from approximately 460 BCE, one of the finest surviving examples of Early Classical Greek art. Apollo, god of music and light, is depicted in ideal human form — the embodiment of harmony between strength and grace.',
+      exhId: 'EXH-001',
+    },
+    {
+      id: 'A2',
+      tag: 'Exhibit · Zone A2',
+      title: 'Ancient Greek Vase',
+      desc: 'Red-figure pottery, c. 490 BCE. This Attic amphora depicts the labours of Heracles in exquisite detail. The red-figure technique, invented around 530 BCE, allowed artists unprecedented expressiveness in rendering anatomy and narrative. Note the dynamic composition along the neck.',
+      speech: 'You are viewing Zone A2. The Ancient Greek Vase. Red-figure pottery from approximately 490 BCE. This Attic amphora depicts the labours of Heracles in exquisite detail. The red-figure technique allowed artists unprecedented expressiveness in rendering anatomy and narrative.',
+      exhId: 'EXH-002',
+    },
+  ];
+
+  /* ════════════════════════════════════════════
+     STATE
+  ════════════════════════════════════════════ */
+  let currentZoneIndex = 0;
+  let gestureReady = true;
+  let gestureTimeout = null;
+  const GESTURE_COOLDOWN = 1400; // ms
+
+  let isSpeaking = false;
+
+  /* ════════════════════════════════════════════
+     ELEMENTS
+  ════════════════════════════════════════════ */
+  const video            = document.getElementById('video');
+  const canvas           = document.getElementById('output-canvas');
+  const permScreen       = document.getElementById('perm-screen');
+  const startBtn         = document.getElementById('start-btn');
+  const loadingBar       = document.getElementById('loading-bar');
+  const zoneId           = document.getElementById('zone-id');
+  const exhibitTag       = document.getElementById('exhibit-tag');
+  const exhibitTitle     = document.getElementById('exhibit-title');
+  const exhibitDesc      = document.getElementById('exhibit-desc');
+  const cornerIdEl       = document.getElementById('corner-id');
+  const zoneNavEl        = document.getElementById('zone-nav');
+  const gestureToast     = document.getElementById('gesture-toast');
+  const speechIndicator  = document.getElementById('speech-indicator');
+  const timeDisplay      = document.getElementById('time-display');
+  const mpStatus         = document.getElementById('mp-status');
+  const mpText           = document.getElementById('mp-text');
+  const zoneFlash        = document.getElementById('zone-flash');
+  const infoCard         = document.getElementById('info-card');
+
+  /* ════════════════════════════════════════════
+     TIME
+  ════════════════════════════════════════════ */
+  function updateTime() {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2,'0');
+    const m = String(now.getMinutes()).padStart(2,'0');
+    const s = String(now.getSeconds()).padStart(2,'0');
+    timeDisplay.textContent = `${h}:${m}:${s}`;
+  }
+  setInterval(updateTime, 1000);
+  updateTime();
+
+  /* ════════════════════════════════════════════
+     NAV DOTS
+  ════════════════════════════════════════════ */
+  function buildNavDots() {
+    zoneNavEl.innerHTML = '';
+    ZONES.forEach((z, i) => {
+      const dot = document.createElement('div');
+      dot.className = 'nav-dot' + (i === currentZoneIndex ? ' active' : '');
+      zoneNavEl.appendChild(dot);
+    });
+  }
+  buildNavDots();
+
+  /* ════════════════════════════════════════════
+     UPDATE HUD
+  ════════════════════════════════════════════ */
+  function updateHUD(index, animate = true) {
+    const zone = ZONES[index];
+    if (animate) {
+      infoCard.style.opacity = '0';
+      zoneId.style.opacity = '0';
+    }
+    setTimeout(() => {
+      zoneId.textContent      = zone.id;
+      exhibitTag.textContent  = zone.tag;
+      exhibitTitle.textContent= zone.title;
+      exhibitDesc.textContent = zone.desc;
+      cornerIdEl.textContent  = `ID:${zone.exhId}`;
+      buildNavDots();
+      if (animate) {
+        infoCard.style.opacity = '1';
+        zoneId.style.opacity   = '1';
+      }
+    }, animate ? 200 : 0);
+  }
+
+  /* ════════════════════════════════════════════
+     ZONE FLASH
+  ════════════════════════════════════════════ */
+  function doZoneFlash() {
+    zoneFlash.classList.add('flash');
+    setTimeout(() => zoneFlash.classList.remove('flash'), 150);
+  }
+
+  /* ════════════════════════════════════════════
+     TOAST
+  ════════════════════════════════════════════ */
+  let toastTimer = null;
+  function showToast(msg) {
+    gestureToast.textContent = msg;
+    gestureToast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => gestureToast.classList.remove('show'), 1600);
+  }
+
+  /* ════════════════════════════════════════════
+     SPEECH
+  ════════════════════════════════════════════ */
+  function speak(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel(); // prevent spam
+    isSpeaking = false;
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate  = 0.92;
+    utt.pitch = 1.0;
+    utt.lang  = 'en-US';
+    utt.onstart = () => {
+      isSpeaking = true;
+      speechIndicator.classList.add('visible');
+    };
+    utt.onend = utt.onerror = () => {
+      isSpeaking = false;
+      speechIndicator.classList.remove('visible');
+    };
+    // Safari fix: slight delay
+    setTimeout(() => window.speechSynthesis.speak(utt), 80);
+  }
+
+  /* ════════════════════════════════════════════
+     ZONE NAVIGATION
+  ════════════════════════════════════════════ */
+  function goNextZone() {
+    currentZoneIndex = (currentZoneIndex + 1) % ZONES.length;
+    updateHUD(currentZoneIndex);
+    doZoneFlash();
+    showToast('▶  ' + ZONES[currentZoneIndex].id);
+  }
+  function goPrevZone() {
+    currentZoneIndex = (currentZoneIndex - 1 + ZONES.length) % ZONES.length;
+    updateHUD(currentZoneIndex);
+    doZoneFlash();
+    showToast('◀  ' + ZONES[currentZoneIndex].id);
+  }
+  function speakCurrentZone() {
+    showToast('🔊  SPEAKING');
+    speak(ZONES[currentZoneIndex].speech);
+  }
+
+  /* ════════════════════════════════════════════
+     GESTURE DEBOUNCE WRAPPER
+  ════════════════════════════════════════════ */
+  function triggerGesture(fn) {
+    if (!gestureReady) return;
+    gestureReady = false;
+    fn();
+    if (gestureTimeout) clearTimeout(gestureTimeout);
+    gestureTimeout = setTimeout(() => { gestureReady = true; }, GESTURE_COOLDOWN);
+  }
+
+  /* ════════════════════════════════════════════
+     TOUCH / SWIPE FALLBACK
+  ════════════════════════════════════════════ */
+  let touchStartX = null;
+  document.addEventListener('touchstart', e => {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (touchStartX === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 60) {
+      if (dx < 0) triggerGesture(goNextZone);
+      else         triggerGesture(goPrevZone);
+    }
+    touchStartX = null;
+  }, { passive: true });
+
+  /* ════════════════════════════════════════════
+     MEDIAPIPE HANDS
+  ════════════════════════════════════════════ */
+  /* Landmark indices */
+  const INDEX_TIP   = 8;
+  const INDEX_MCP   = 5;
+  const THUMB_TIP   = 4;
+  const WRIST       = 0;
+
+  let prevWristX = null;
+  let pinchWasActive = false;
+
+  function dist2D(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  function isPinch(landmarks) {
+    return dist2D(landmarks[THUMB_TIP], landmarks[INDEX_TIP]) < 0.07;
+  }
+
+  function detectSwipe(landmarks) {
+    const wrist = landmarks[WRIST];
+    if (prevWristX === null) { prevWristX = wrist.x; return null; }
+    const dx = wrist.x - prevWristX;
+    prevWristX = wrist.x;
+    if (dx > 0.04)  return 'right';
+    if (dx < -0.04) return 'left';
+    return null;
+  }
+
+  function onResults(results) {
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      mpStatus.classList.add('active');
+      mpText.textContent = 'HAND DETECTED';
+
+      const lm = results.multiHandLandmarks[0];
+
+      /* Pinch detection */
+      const pinch = isPinch(lm);
+      if (pinch && !pinchWasActive) {
+        triggerGesture(speakCurrentZone);
+      }
+      pinchWasActive = pinch;
+
+      /* Swipe detection */
+      const swipe = detectSwipe(lm);
+      if (swipe === 'right') triggerGesture(goNextZone);
+      if (swipe === 'left')  triggerGesture(goPrevZone);
+
+    } else {
+      mpStatus.classList.remove('active');
+      mpText.textContent = 'SCANNING';
+      prevWristX = null;
+      pinchWasActive = false;
+    }
+  }
+
+  /* ════════════════════════════════════════════
+     INIT CAMERA + MEDIAPIPE
+  ════════════════════════════════════════════ */
+  let mpCamera = null;
+
+  async function initApp() {
+    /* loading feedback */
+    loadingBar.style.width = '20%';
+
+    /* Camera stream */
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { exact: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+    } catch (e1) {
+      /* Fallback if exact not supported */
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false,
+        });
+      } catch (e2) {
+        alert('Camera access denied or unavailable. Please allow camera and reload.');
+        return;
+      }
+    }
+
+    video.srcObject = stream;
+    await new Promise(res => { video.onloadedmetadata = res; });
+    await video.play();
+
+    loadingBar.style.width = '55%';
+    permScreen.style.display = 'none';
+
+    /* Canvas sizing */
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 480;
+
+    /* MediaPipe Hands */
+    const hands = new Hands({
+      locateFile: file =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0,         // 0 = lite, faster on mobile
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.5,
+    });
+    hands.onResults(onResults);
+
+    loadingBar.style.width = '80%';
+
+    /* Camera utility loop */
+    mpCamera = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({ image: video });
+      },
+      width: canvas.width,
+      height: canvas.height,
+    });
+    await mpCamera.start();
+
+    loadingBar.style.width = '100%';
+    setTimeout(() => { loadingBar.style.display = 'none'; }, 600);
+
+    mpText.textContent = 'SCANNING';
+  }
+
+  /* ════════════════════════════════════════════
+     START BUTTON
+  ════════════════════════════════════════════ */
+  startBtn.addEventListener('click', () => {
+    startBtn.textContent = 'INITIALISING…';
+    startBtn.disabled = true;
+    /* Unlock speech synthesis on iOS (must be triggered from user gesture) */
+    const unlock = new SpeechSynthesisUtterance('');
+    window.speechSynthesis.speak(unlock);
+    initApp();
+  });
+
+  /* ════════════════════════════════════════════
+     INITIAL HUD RENDER
+  ════════════════════════════════════════════ */
+  updateHUD(0, false);
+
+})();
 </script>
-
 </body>
 </html>
