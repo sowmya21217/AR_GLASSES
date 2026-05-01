@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AR Glasses MVP - Full Gesture Pipeline</title>
+<title>AR Glasses MVP v3</title>
 
 <style>
 body {
@@ -20,6 +20,18 @@ body {
   object-fit: cover;
 }
 
+/* HUD like glasses */
+#hud {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  color: white;
+  background: rgba(0,0,0,0.55);
+  padding: 10px;
+  border-radius: 10px;
+  z-index: 10;
+}
+
 #overlay {
   position: fixed;
   bottom: 12%;
@@ -29,21 +41,13 @@ body {
   background: rgba(0,0,0,0.6);
   padding: 15px;
   border-radius: 12px;
-}
-
-#hud {
-  position: fixed;
-  top: 10px;
-  left: 10px;
   z-index: 10;
-  color: white;
 }
 </style>
 
 <!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
 </head>
 
@@ -51,43 +55,42 @@ body {
 
 <video id="video" autoplay playsinline></video>
 
-<div id="overlay">
-  <h2 id="title">Waiting for gesture...</h2>
-  <p id="desc">Show hand to camera</p>
+<div id="hud">
+  <div id="zoneLabel">Zone: NONE</div>
 </div>
 
-<div id="hud">
-  <div>Zone: <span id="zone">None</span></div>
+<div id="overlay">
+  <h2 id="title">Loading...</h2>
+  <p id="desc">Show hand to interact</p>
 </div>
 
 <script>
 
-// ----------------------------
+// --------------------
 // MUSEUM DATA
-// ----------------------------
-const museum = {
+// --------------------
+const zones = {
   A1: {
     title: "Statue of Apollo",
-    desc: "Roman statue from 2nd century BC"
+    desc: "Roman artifact from 2nd century BC"
   },
   A2: {
     title: "Ancient Greek Vase",
-    desc: "Ceramic artifact from ancient Greece"
+    desc: "Ceramic pottery used in rituals"
   }
 };
 
 let currentZone = "A1";
 
-// ----------------------------
-// VOICE (FIXED - NO DUPLICATE)
-// ----------------------------
+// --------------------
+// SPEECH (NO REPEAT FIX)
+// --------------------
 let speaking = false;
 
 function speak(text) {
   if (speaking) return;
 
   speaking = true;
-
   speechSynthesis.cancel();
 
   let msg = new SpeechSynthesisUtterance(text);
@@ -99,41 +102,47 @@ function speak(text) {
   speechSynthesis.speak(msg);
 }
 
-// ----------------------------
-// UPDATE UI
-// ----------------------------
-function updateUI(zone) {
-  currentZone = zone;
+// --------------------
+// UI UPDATE
+// --------------------
+function setZone(z) {
+  currentZone = z;
 
-  document.getElementById("zone").innerText = zone;
-  document.getElementById("title").innerText = museum[zone].title;
-  document.getElementById("desc").innerText = museum[zone].desc;
+  document.getElementById("zoneLabel").innerText =
+    "Zone: " + z;
+
+  document.getElementById("title").innerText =
+    zones[z].title;
+
+  document.getElementById("desc").innerText =
+    zones[z].desc;
 }
 
-// ----------------------------
-// CAMERA START
-// ----------------------------
+// init
+setZone("A1");
+
+// --------------------
+// CAMERA (FORCE BACK CAMERA)
+// --------------------
 const video = document.getElementById("video");
 
-navigator.mediaDevices.getUserMedia({ video: true })
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: { ideal: "environment" } }
+})
 .then(stream => {
   video.srcObject = stream;
+})
+.catch(() => {
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" }
+  }).then(stream => {
+    video.srcObject = stream;
+  });
 });
 
-// ----------------------------
-// ZONE SWITCH
-// ----------------------------
-function nextZone() {
-  updateUI("A2");
-}
-
-function prevZone() {
-  updateUI("A1");
-}
-
-// ----------------------------
-// MEDIA PIPE HANDS SETUP
-// ----------------------------
+// --------------------
+// HAND TRACKING
+// --------------------
 const hands = new Hands({
   locateFile: (file) =>
     `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -146,56 +155,54 @@ hands.setOptions({
   minTrackingConfidence: 0.7
 });
 
-// ----------------------------
-// GESTURE LOGIC
-// ----------------------------
-let lastGestureTime = 0;
+// --------------------
+// GESTURE ENGINE
+// --------------------
+let lastActionTime = 0;
 
 hands.onResults(results => {
   if (!results.multiHandLandmarks) return;
 
+  const now = Date.now();
+  if (now - lastActionTime < 1200) return;
+
   const hand = results.multiHandLandmarks[0];
 
-  const indexTip = hand[8];
-  const thumbTip = hand[4];
+  const index = hand[8];
+  const thumb = hand[4];
 
-  const dx = indexTip.x - thumbTip.x;
-  const dy = indexTip.y - thumbTip.y;
+  const dx = index.x - thumb.x;
+  const dy = index.y - thumb.y;
 
   const distance = Math.sqrt(dx*dx + dy*dy);
 
-  const now = Date.now();
-
-  // debounce gestures (prevents spam)
-  if (now - lastGestureTime < 1200) return;
-
-  // 🤏 PINCH = SPEAK
+  // 🤏 PINCH → SPEAK
   if (distance < 0.05) {
-    lastGestureTime = now;
+    lastActionTime = now;
 
-    const text =
-      museum[currentZone].title + ". " +
-      museum[currentZone].desc;
-
-    speak(text);
+    speak(
+      zones[currentZone].title +
+      ". " +
+      zones[currentZone].desc
+    );
   }
 
-  // 👉 swipe right (hand movement)
-  if (indexTip.x > 0.7) {
-    lastGestureTime = now;
-    nextZone();
+  // 👉 swipe right → next zone
+  if (index.x > 0.75) {
+    lastActionTime = now;
+    setZone("A2");
   }
 
-  // 👈 swipe left
-  if (indexTip.x < 0.3) {
-    lastGestureTime = now;
-    prevZone();
+  // 👈 swipe left → prev zone
+  if (index.x < 0.25) {
+    lastActionTime = now;
+    setZone("A1");
   }
 });
 
-// ----------------------------
-// CONNECT CAMERA TO MEDIAPIPE
-// ----------------------------
+// --------------------
+// CAMERA → MEDIAPIPE PIPELINE
+// --------------------
 const camera = new Camera(video, {
   onFrame: async () => {
     await hands.send({ image: video });
@@ -205,11 +212,6 @@ const camera = new Camera(video, {
 });
 
 camera.start();
-
-// ----------------------------
-// INIT DEFAULT ZONE
-// ----------------------------
-updateUI("A1");
 
 </script>
 
