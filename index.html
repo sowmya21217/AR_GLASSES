@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Meta Glasses Style Museum AR</title>
+<title>Museum AR Glasses - Huawei</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
@@ -12,31 +12,19 @@
 
   #video { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; }
 
-  #hud { position:fixed; inset:0; z-index:10; pointer-events:none; }
-
   #overlay {
     position:fixed; inset:0; z-index:2; pointer-events:none;
-    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.04) 4px, rgba(0,255,136,0.04) 5px),
-                radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.75) 100%);
+    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.05) 4px, rgba(0,255,136,0.05) 5px),
+                radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.8) 100%);
     animation: scan 8s linear infinite;
   }
   @keyframes scan { from {background-position:0 0;} to {background-position:0 400px;} }
 
-  #zone { position:absolute; top:25px; left:25px; font-family:'Orbitron',sans-serif; font-size:36px; font-weight:900; text-shadow:0 0 20px var(--green); }
-
-  #info {
-    position:absolute; bottom:90px; left:20px; right:20px;
-    background:rgba(0,0,0,0.7); border:1.8px solid var(--green);
-    padding:16px; border-radius:10px; backdrop-filter:blur(12px);
-  }
-  #title { font-family:'Orbitron',sans-serif; font-size:18px; margin-bottom:6px; }
-  #desc { font-size:13px; line-height:1.55; color:#ddd; }
-
-  #toast { 
-    position:absolute; top:40%; left:50%; transform:translate(-50%,-50%);
-    background:rgba(0,229,255,0.2); border:2px solid var(--cyan);
-    padding:12px 30px; border-radius:50px; font-size:15px; opacity:0; transition:0.3s;
-  }
+  #zone { position:absolute; top:30px; left:30px; font-family:'Orbitron',sans-serif; font-size:40px; font-weight:900; text-shadow:0 0 25px var(--green); }
+  #info { position:absolute; bottom:100px; left:20px; right:20px; background:rgba(0,0,0,0.7); border:2px solid var(--green); padding:18px; border-radius:12px; backdrop-filter:blur(12px); }
+  #title { font-family:'Orbitron',sans-serif; font-size:19px; margin-bottom:8px; }
+  #desc { font-size:13.5px; line-height:1.6; color:#eee; }
+  #toast { position:absolute; top:45%; left:50%; transform:translate(-50%,-50%); background:rgba(0,229,255,0.2); border:2px solid var(--cyan); padding:14px 32px; border-radius:50px; font-size:16px; opacity:0; transition:0.3s; }
 </style>
 </head>
 <body>
@@ -48,27 +36,26 @@
   <div id="zone">A1</div>
   <div id="info">
     <div id="title">Statue of Apollo</div>
-    <div id="desc">Point at monument • Pinch in air to speak • Swipe or say "next"</div>
+    <div id="desc">Back camera • Pinch in air to speak • Swipe to change</div>
   </div>
   <div id="toast"></div>
 </div>
 
-<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:18px 45px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:17px;border-radius:8px;">
-  START META GLASSES MODE
+<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:22px 55px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:18px;border-radius:12px;">
+  START HUAWEI AR GLASSES MODE
 </button>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <script>
-// ================== DATA ==================
+// Data
 const ZONES = [
-  { id: "A1", title: "Statue of Apollo", desc: "Marble sculpture, c. 460 BCE. Early Classical Greek masterpiece with beautiful contrapposto stance." },
-  { id: "A2", title: "Ancient Greek Vase", desc: "Red-figure pottery, c. 490 BCE. Shows the labours of Heracles with dynamic composition." }
+  { id: "A1", title: "Statue of Apollo", desc: "Marble sculpture, c. 460 BCE. Early Classical Greek masterpiece." },
+  { id: "A2", title: "Ancient Greek Vase", desc: "Red-figure pottery, c. 490 BCE. Depicts the labours of Heracles." }
 ];
 
 let currentZone = 0;
-let lastAction = 0;
 
 // Elements
 const video = document.getElementById('video');
@@ -78,109 +65,72 @@ const descEl = document.getElementById('desc');
 const toastEl = document.getElementById('toast');
 const startBtn = document.getElementById('startBtn');
 
-function update() {
+function updateZone() {
   const z = ZONES[currentZone];
   zoneEl.textContent = z.id;
   titleEl.textContent = z.title;
   descEl.textContent = z.desc;
 }
 
-function toast(msg) {
+function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.style.opacity = 1;
-  setTimeout(() => toastEl.style.opacity = 0, 1400);
+  setTimeout(() => toastEl.style.opacity = 0, 1600);
 }
 
-// ================== GESTURES + VOICE ==================
+// Hand gesture
 function onHandResults(results) {
   if (!results.multiHandLandmarks?.length) return;
   const lm = results.multiHandLandmarks[0];
   const pinch = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
 
-  if (pinch < 0.07 && Date.now() - lastAction > 1200) {
-    lastAction = Date.now();
-    speak(ZONES[currentZone].title + ". " + ZONES[currentZone].desc);
-    toast("🔊 SPEAKING");
+  if (pinch < 0.07 && Date.now() - (window.lastP || 0) > 1300) {
+    window.lastP = Date.now();
+    const ut = new SpeechSynthesisUtterance(ZONES[currentZone].title + ". " + ZONES[currentZone].desc);
+    speechSynthesis.speak(ut);
+    showToast("🔊 SPEAKING");
   }
 }
 
-function speak(text) {
-  if ('speechSynthesis' in window) {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.94;
-    speechSynthesis.speak(u);
-  }
-}
-
-// Voice Commands
-function startVoice() {
-  if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) return;
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const rec = new Recognition();
-  rec.continuous = true;
-  rec.interimResults = false;
-  rec.lang = 'en-US';
-
-  rec.onresult = (event) => {
-    const said = event.results[event.results.length-1][0].transcript.toLowerCase();
-    if (said.includes("next") || said.includes("forward")) {
-      currentZone = (currentZone + 1) % ZONES.length;
-      update();
-      toast("▶ NEXT ZONE");
-    } else if (said.includes("previous") || said.includes("back")) {
-      currentZone = (currentZone - 1 + ZONES.length) % ZONES.length;
-      update();
-      toast("◀ PREVIOUS ZONE");
-    } else if (said.includes("speak") || said.includes("read")) {
-      speak(ZONES[currentZone].title + ". " + ZONES[currentZone].desc);
-    }
-  };
-  rec.start();
-}
-
-// Start
-async function start() {
+async function startHuawei() {
   startBtn.style.display = "none";
 
+  let stream = null;
+
+  // Huawei-friendly camera request
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: "environment" } }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: {ideal: 1280}, height: {ideal: 720} }
     });
-    video.srcObject = stream;
-    await video.play();
-
-    // Hands
-    const hands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-    hands.setOptions({ maxNumHands:1, modelComplexity:0, minDetectionConfidence:0.7 });
-    hands.onResults(onHandResults);
-
-    const camera = new Camera(video, { onFrame: async () => await hands.send({image: video}) });
-    await camera.start();
-
-    update();
-    toast("✅ META GLASSES MODE");
-
-    // Start voice after 1 second
-    setTimeout(startVoice, 1200);
-
   } catch (e) {
-    alert("Back camera error. " + e.message);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    } catch (err) {
+      alert("Camera access denied. Please allow in settings.");
+      return;
+    }
   }
+
+  video.srcObject = stream;
+  await video.play();
+
+  // MediaPipe
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+  hands.setOptions({ maxNumHands:1, modelComplexity:0, minDetectionConfidence:0.65 });
+  hands.onResults(onHandResults);
+
+  const camera = new Camera(video, {
+    onFrame: async () => await hands.send({image: video})
+  });
+  await camera.start();
+
+  updateZone();
+  showToast("✅ HUAWEI AR MODE ACTIVE");
 }
 
-startBtn.addEventListener('click', start);
-
-// Swipe fallback
-let tx = 0;
-document.addEventListener('touchstart', e => tx = e.changedTouches[0].screenX);
-document.addEventListener('touchend', e => {
-  const d = e.changedTouches[0].screenX - tx;
-  if (Math.abs(d) > 70) {
-    currentZone = (d < 0) ? (currentZone + 1) % ZONES.length : (currentZone - 1 + ZONES.length) % ZONES.length;
-    update();
-    toast(d < 0 ? "▶ NEXT" : "◀ PREV");
-  }
-});
+startBtn.addEventListener('click', startHuawei);
 </script>
 </body>
 </html>
