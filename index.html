@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Air Glasses View - Huawei</title>
+<title>Museum AR Glasses - Test Mode</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
@@ -14,33 +14,31 @@
 
   #overlay {
     position:fixed; inset:0; z-index:2; pointer-events:none;
-    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.04) 4px, rgba(0,255,136,0.04) 5px),
-                radial-gradient(ellipse at center, transparent 65%, rgba(0,0,0,0.65) 100%);
-    animation: scan 10s linear infinite;
+    background: repeating-linear-gradient(transparent 0px, transparent 4px, rgba(0,255,136,0.05) 4px, rgba(0,255,136,0.05) 5px),
+                radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,0.75) 100%);
+    animation: scan 9s linear infinite;
   }
-  @keyframes scan { from {background-position:0 0;} to {background-position:0 500px;} }
+  @keyframes scan { from {background-position:0 0;} to {background-position:0 450px;} }
 
-  /* Floating HUD - feels more "in air" */
   #zone { 
-    position:absolute; top:15%; left:50%; transform:translateX(-50%);
-    font-family:'Orbitron',sans-serif; font-size:48px; font-weight:900; 
-    text-shadow:0 0 30px var(--green); opacity:0.95;
+    position:absolute; top:18%; left:50%; transform:translateX(-50%);
+    font-family:'Orbitron',sans-serif; font-size:46px; font-weight:900; 
+    text-shadow:0 0 30px var(--green); letter-spacing:3px;
   }
 
   #info {
-    position:absolute; top:28%; left:50%; transform:translateX(-50%);
-    width:85%; max-width:420px;
-    background:rgba(0,0,0,0.65); border:1.5px solid var(--green);
-    padding:16px 20px; border-radius:12px; backdrop-filter:blur(12px);
-    text-align:center;
+    position:absolute; top:32%; left:50%; transform:translateX(-50%);
+    width:88%; max-width:460px;
+    background:rgba(0,0,0,0.68); border:2px solid var(--green);
+    padding:20px; border-radius:14px; backdrop-filter:blur(14px); text-align:center;
   }
-  #title { font-family:'Orbitron',sans-serif; font-size:18px; margin-bottom:8px; }
-  #desc { font-size:13.5px; line-height:1.6; color:#ddd; }
+  #title { font-family:'Orbitron',sans-serif; font-size:20px; margin-bottom:10px; color:white; }
+  #desc { font-size:14px; line-height:1.65; color:#ddd; }
 
   #toast { 
-    position:absolute; top:55%; left:50%; transform:translate(-50%,-50%);
-    background:rgba(0,229,255,0.18); border:2px solid var(--cyan);
-    padding:12px 30px; border-radius:50px; font-size:15px; opacity:0; transition:0.4s;
+    position:absolute; top:58%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,229,255,0.22); border:2px solid var(--cyan);
+    padding:14px 36px; border-radius:50px; font-size:16px; opacity:0; transition:0.4s;
   }
 </style>
 </head>
@@ -53,23 +51,36 @@
   <div id="zone">A1</div>
   <div id="info">
     <div id="title">Statue of Apollo</div>
-    <div id="desc">Pinch in the air in front of the monument to hear info</div>
+    <div id="desc">Marble sculpture from 460 BCE. One of the greatest surviving examples of Early Classical Greek art. The god of music and light is shown in perfect contrapposto stance.</div>
   </div>
   <div id="toast"></div>
 </div>
 
-<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:20px 55px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:18px;border-radius:12px;">
-  START AIR GLASSES VIEW
+<button id="startBtn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100;padding:22px 60px;background:transparent;border:3px solid #0f0;color:#0f0;font-size:18px;border-radius:12px;">
+  START AIR GLASSES TEST
 </button>
 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <script>
-// Data + logic (same as before)
+// More fake realistic data
 const ZONES = [
-  { id: "A1", title: "Statue of Apollo", desc: "Marble sculpture, c. 460 BCE. Early Classical Greek art with ideal human form." },
-  { id: "A2", title: "Ancient Greek Vase", desc: "Red-figure pottery, c. 490 BCE. Depicts the labours of Heracles." }
+  { 
+    id: "A1", 
+    title: "Statue of Apollo", 
+    desc: "Marble sculpture, c. 460 BCE. Masterpiece of Early Classical Greek art. Apollo, god of music and light, is depicted in ideal human form with beautiful contrapposto stance." 
+  },
+  { 
+    id: "A2", 
+    title: "Red-Figure Amphora", 
+    desc: "Attic vase, c. 490 BCE. Shows Heracles fighting the Nemean Lion. The red-figure technique allowed artists to create incredibly detailed and expressive figures." 
+  },
+  { 
+    id: "A3", 
+    title: "Bronze Warrior", 
+    desc: "Greek bronze statue from 5th century BCE. Found in the sea near Riace, Italy. Remarkable preservation of original inlaid eyes and silver teeth." 
+  }
 ];
 
 let currentZone = 0;
@@ -91,29 +102,31 @@ function updateZone() {
 function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.style.opacity = 1;
-  setTimeout(() => toastEl.style.opacity = 0, 1600);
+  setTimeout(() => toastEl.style.opacity = 0, 1800);
 }
 
 function onHandResults(results) {
   if (!results.multiHandLandmarks?.length) return;
   const lm = results.multiHandLandmarks[0];
-  const pinch = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+  const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
 
-  if (pinch < 0.07 && Date.now() - (window.lastP||0) > 1400) {
-    window.lastP = Date.now();
-    const ut = new SpeechSynthesisUtterance(ZONES[currentZone].title + ". " + ZONES[currentZone].desc);
-    speechSynthesis.speak(ut);
+  if (pinchDist < 0.07 && Date.now() - (window.lastPinch || 0) > 1400) {
+    window.lastPinch = Date.now();
+    const text = ZONES[currentZone].title + ". " + ZONES[currentZone].desc;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.92;
+    speechSynthesis.speak(utterance);
     showToast("🔊 SPEAKING");
   }
 }
 
-async function start() {
+async function startTest() {
   startBtn.style.display = "none";
 
   let stream = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: {ideal: 1280} }
+    stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: "environment", width: {ideal: 1280} } 
     });
   } catch (e) {
     stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -126,14 +139,16 @@ async function start() {
   hands.setOptions({ maxNumHands:1, modelComplexity:0 });
   hands.onResults(onHandResults);
 
-  const camera = new Camera(video, { onFrame: async () => await hands.send({image: video}) });
+  const camera = new Camera(video, { 
+    onFrame: async () => await hands.send({image: video}) 
+  });
   await camera.start();
 
   updateZone();
-  showToast("✅ AIR GLASSES VIEW READY");
+  showToast("✅ AIR GLASSES TEST ACTIVE");
 }
 
-startBtn.addEventListener('click', start);
+startBtn.addEventListener('click', startTest);
 </script>
 </body>
 </html>
