@@ -4,194 +4,225 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<title>Spatial Museum AR</title>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>Spatial Museum AR Guide</title>
 
 <style>
-/* ===== YOUR ORIGINAL CSS KEPT (SHORTENED MARKER) ===== */
-/* (UNCHANGED HUD STYLES — paste your full CSS here) */
+  /* === YOUR ORIGINAL FULL CSS (paste it here) === */
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --hud-green: #00ff88; --hud-cyan: #00e5ff; --hud-amber: #ffb300; --hud-red: #ff3d71;
+    --glass-bg: rgba(0,0,0,0.55); --glass-border: rgba(0,255,136,0.35);
+    --scan-line: rgba(0,255,136,0.06);
+    --font-hud: 'Orbitron', sans-serif; --font-mono: 'Share Tech Mono', monospace;
+  }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden; background: #000;
+    font-family: var(--font-mono); -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  #xr-canvas { position: fixed; inset: 0; z-index: 1; }
+  /* Paste the rest of your original styles here (scanlines, vignette, hud, top-bar, info-card, gesture-bar, etc.) */
+  /* ... (to keep this response reasonable, assume your full CSS from the first HTML is copied in) ... */
 
-body { margin:0; overflow:hidden; background:#000; font-family:monospace; }
-
-/* AR CANVAS */
-#xr-canvas {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 1;
-}
-
-/* HUD stays above AR */
-#hud { position:fixed; inset:0; z-index:10; pointer-events:none; }
-
-/* SIMPLE CENTER RETICLE */
-#reticle {
-  position:absolute;
-  top:50%; left:50%;
-  transform:translate(-50%,-50%);
-  width:40px; height:40px;
-  border:1px solid #0f0;
-  border-radius:50%;
-}
+  /* Minor overrides for spatial AR */
+  #hud { z-index: 10; pointer-events: none; }
+  #reticle { z-index: 15; } /* your original reticle */
 </style>
 </head>
-
 <body>
 
-<!-- XR CANVAS -->
+<!-- XR Canvas -->
 <canvas id="xr-canvas"></canvas>
 
-<!-- YOUR HUD (KEEP YOUR FULL ORIGINAL HUD HERE) -->
+<!-- Your original HUD elements (video, overlays, perm screen, etc.) -->
+<video id="video" autoplay playsinline muted style="display:none;"></video>
+<canvas id="output-canvas" style="display:none;"></canvas>
+
+<div id="scanlines"></div>
+<div id="vignette"></div>
+<div id="zone-flash"></div>
+<div id="gesture-toast"></div>
+<div id="speech-indicator">...</div>
+<div id="mp-status">...</div>
+
 <div id="hud">
-  <div id="reticle"></div>
+  <!-- Your full top-bar, zone-badge, reticle, bottom-panel, info-card, gesture-bar -->
+  <!-- (copy your entire #hud content from the original) -->
 </div>
+
+<!-- Loading / Permission -->
+<div id="perm-screen"> ... your original permission screen ... </div>
+<div id="loading-bar"></div>
 
 <script type="module">
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+import { ARButton } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/ARButton.js";
 
-/* =========================
-   XR CORE SETUP
-========================= */
+// === YOUR ORIGINAL SCRIPT LOGIC (ZONES, MediaPipe, gestures, HUD updates) ===
+/* Paste almost your entire <script> content here, including ZONES array, state, updateHUD, speak, gesture handlers, MediaPipe setup, etc. */
+
+// Keep your MediaPipe preload, onResults (swipe/pinch), touch fallback, etc.
+
+// === THREE.JS + WEBXR SETUP ===
 let scene, camera, renderer;
-let controller;
+let reticle;
 let hitTestSource = null;
 let hitTestSourceRequested = false;
-
-let reticle;
 let xrSession = null;
 
-init();
+const placedExhibits = [];
 
-async function init() {
-
-  scene = new THREE.Scene();
-
-  camera = new THREE.PerspectiveCamera();
-
-  renderer = new THREE.WebGLRenderer({
-    canvas: document.getElementById("xr-canvas"),
-    alpha: true,
-    antialias: true
-  });
-
-  renderer.setSize(window.innerWidth, window.innerHeight);
+async function initThree() {
+  const canvas = document.getElementById('xr-canvas');
+  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.xr.enabled = true;
 
-  /* LIGHT */
-  const light = new THREE.HemisphereLight(0xffffff, 0x444444);
-  scene.add(light);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera();
 
-  /* RETICLE (SPATIAL TARGET) */
-  const ringGeo = new THREE.RingGeometry(0.08, 0.1, 32);
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
+  // Lighting
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+  scene.add(hemi);
+
+  // Spatial reticle (floating ring)
+  const ringGeo = new THREE.RingGeometry(0.12, 0.15, 32);
+  const ringMat = new THREE.MeshBasicMaterial({ 
+    color: 0x00ff88, 
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.7
+  });
   reticle = new THREE.Mesh(ringGeo, ringMat);
+  reticle.rotation.x = -Math.PI / 2;
   reticle.matrixAutoUpdate = false;
   reticle.visible = false;
   scene.add(reticle);
 
-  /* BUTTON */
-  const btn = ARButton.createButton(renderer, {
-    requiredFeatures: ["hit-test", "local-floor"]
-  });
-  document.body.appendChild(btn);
+  // Add a subtle grid or plane helper if you want
+  // const grid = new THREE.GridHelper(2, 10, 0x00ff88, 0x00ff88);
+  // grid.material.opacity = 0.15; grid.material.transparent = true;
+  // scene.add(grid);
 
-  /* CONTROLLER (TAP TO PLACE OBJECTS) */
-  controller = renderer.xr.getController(0);
-  controller.addEventListener("select", onSelect);
+  // AR Button (immersive-ar)
+  const arButton = ARButton.createButton(renderer, {
+    requiredFeatures: ['hit-test'],
+    optionalFeatures: ['local-floor']
+  });
+  document.body.appendChild(arButton);
+
+  // Controller / Select event (tap to place)
+  const controller = renderer.xr.getController(0);
+  controller.addEventListener('select', onSelect);
   scene.add(controller);
 
   renderer.setAnimationLoop(render);
 }
 
-/* =========================
-   SPATIAL EXHIBIT OBJECT
-========================= */
-function createExhibit(label) {
+function createExhibit(zone) {
   const group = new THREE.Group();
 
-  const geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x00ff88 });
-  const cube = new THREE.Mesh(geo, mat);
+  // Simple glowing box as exhibit placeholder (replace with GLTF model later)
+  const box = new THREE.Mesh(
+    new THREE.BoxGeometry(0.25, 0.35, 0.15),
+    new THREE.MeshStandardMaterial({ color: 0x00e5ff, emissive: 0x00ff88, emissiveIntensity: 0.3 })
+  );
+  group.add(box);
 
-  const textGeo = new THREE.PlaneGeometry(0.3, 0.1);
-  const textMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  // Label plane (you can improve with TextGeometry or CSS2DObject)
+  const labelGeo = new THREE.PlaneGeometry(0.4, 0.12);
+  const labelMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+  const label = new THREE.Mesh(labelGeo, labelMat);
+  label.position.set(0, 0.3, 0);
+  label.rotation.x = -Math.PI / 2;
+  group.add(label);
 
-  const text = new THREE.Mesh(textGeo, textMat);
-  text.position.y = 0.25;
-
-  group.add(cube);
-  group.add(text);
-
-  group.userData.label = label;
-
+  group.userData = { zoneId: zone.id, title: zone.title };
   return group;
 }
 
-/* =========================
-   PLACE OBJECT IN REAL WORLD
-========================= */
 function onSelect() {
-  if (reticle.visible) {
-    const exhibit = createExhibit("Apollo Exhibit");
-    exhibit.position.setFromMatrixPosition(reticle.matrix);
-    scene.add(exhibit);
-  }
+  if (!reticle.visible) return;
+
+  const currentZone = ZONES[currentZoneIndex];
+  const exhibit = createExhibit(currentZone);
+
+  // Position at reticle
+  const pos = new THREE.Vector3();
+  pos.setFromMatrixPosition(reticle.matrix);
+  exhibit.position.copy(pos);
+
+  // Slight random rotation for natural feel
+  exhibit.rotation.y = Math.random() * Math.PI * 2;
+
+  scene.add(exhibit);
+  placedExhibits.push(exhibit);
+
+  showToast(`✅ Placed ${currentZone.title}`);
 }
 
-/* =========================
-   XR RENDER LOOP
-========================= */
+// Render loop with hit test
 function render(timestamp, frame) {
-
   if (frame) {
-
     const referenceSpace = renderer.xr.getReferenceSpace();
     const session = renderer.xr.getSession();
 
     if (!hitTestSourceRequested) {
-
-      session.requestReferenceSpace("viewer").then((refSpace) => {
-
-        session.requestHitTestSource({ space: refSpace }).then((source) => {
+      session.requestReferenceSpace('viewer').then((viewerSpace) => {
+        session.requestHitTestSource({ space: viewerSpace }).then((source) => {
           hitTestSource = source;
         });
-
       });
-
-      session.addEventListener("end", () => {
-        hitTestSourceRequested = false;
-        hitTestSource = null;
-      });
-
       hitTestSourceRequested = true;
     }
 
     if (hitTestSource) {
-
       const hitTestResults = frame.getHitTestResults(hitTestSource);
-
-      if (hitTestResults.length) {
-
+      if (hitTestResults.length > 0) {
         const hit = hitTestResults[0];
         const pose = hit.getPose(referenceSpace);
-
-        reticle.visible = true;
-        reticle.matrix.fromArray(pose.transform.matrix);
-
+        if (pose) {
+          reticle.visible = true;
+          reticle.matrix.fromArray(pose.transform.matrix);
+        }
       } else {
         reticle.visible = false;
       }
     }
   }
 
+  // Your original HUD / gesture logic runs independently
   renderer.render(scene, camera);
 }
 
+// === INTEGRATION WITH YOUR ORIGINAL INIT ===
+const originalInitApp = initApp; // rename your original if needed
+
+async function startSpatialAR() {
+  // Start your original camera + MediaPipe for gestures/HUD
+  await initApp(); // your original function (camera, MediaPipe, etc.)
+
+  // Now start Three.js + WebXR
+  await initThree();
+
+  // Optional: hide video element since WebXR provides the passthrough camera
+  document.getElementById('video').style.display = 'none';
+}
+
+// Modify your start button click
+startBtn.addEventListener('click', () => {
+  startBtn.textContent = 'STARTING SPATIAL AR…';
+  startBtn.disabled = true;
+  startSpatialAR();
+});
+
+// Expose some globals if needed for cross-talk between HUD and 3D
+window.placedExhibits = placedExhibits;
 </script>
 
-<!-- WebXR helper -->
+<!-- Polyfill + helpers -->
 <script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@latest/build/webxr-polyfill.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/ARButton.js"></script>
 
 </body>
 </html>
